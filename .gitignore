@@ -10,5 +10,5 @@ eight_queens_linux
 EightQueens.exe
 EightQueens_Debug.exe
 .agent
-/.cargo/config.toml.bak
+/.cargo
 "CUsersmasoud.geminicargo_target"

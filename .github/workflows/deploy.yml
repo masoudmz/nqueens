@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # Replace with your branch name if different
+    branches: ["main", "master"]
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
           sudo mv trunk /usr/local/bin/
 
       - name: Build Web App
-        run: trunk build --release
+        run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

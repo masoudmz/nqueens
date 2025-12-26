@@ -304,210 +304,213 @@ impl eframe::App for EightQueensApp {
         let is_mobile = ctx.screen_rect().width() < 700.0;
 
         // --- Shared UI Logic ---
-        let mut control_ui =
-            |ui: &mut egui::Ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("♛ N-Queens")
-                            .size(if is_mobile { 20.0 } else { 24.0 })
-                            .strong()
-                            .color(self.theme.text_color),
-                    );
-                });
-
-                ui.add_space(if is_mobile { 10.0 } else { 20.0 });
-
+        let mut control_ui = |ui: &mut egui::Ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
                 ui.label(
-                    egui::RichText::new("Configuration")
+                    egui::RichText::new("♛ N-Queens")
+                        .size(if is_mobile { 20.0 } else { 24.0 })
                         .strong()
                         .color(self.theme.text_color),
                 );
-                ui.separator();
+            });
 
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Board Size:").color(self.theme.text_color));
-                    let resp =
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.n_input)
-                                .desired_width(if is_mobile { 60.0 } else { 50.0 }),
-                        );
-                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(n) = self.n_input.parse::<usize>() {
-                            if n >= 4 && n <= 30 {
-                                self.n = n;
-                                self.solver = SolverWrapper::new(self.n);
-                            }
-                        }
-                    }
-                });
+            ui.add_space(if is_mobile { 10.0 } else { 20.0 });
 
-                ui.add_space(15.0);
+            ui.label(
+                egui::RichText::new("Configuration")
+                    .strong()
+                    .color(self.theme.text_color),
+            );
+            ui.separator();
 
-                ui.label(
-                    egui::RichText::new("Controls")
-                        .strong()
-                        .color(self.theme.text_color),
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Board Size:").color(self.theme.text_color));
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.n_input)
+                        .desired_width(if is_mobile { 60.0 } else { 50.0 })
+                        .font(egui::FontId::proportional(if is_mobile {
+                            16.0
+                        } else {
+                            14.0
+                        })),
                 );
-                ui.separator();
-
-                ui.horizontal_wrapped(|ui| {
-                    let btn_size = if is_mobile {
-                        egui::vec2(55.0, 45.0)
-                    } else {
-                        egui::vec2(50.0, 40.0)
-                    };
-                    let font_size = if is_mobile { 22.0 } else { 20.0 };
-
-                    // Play
-                    if ui
-                        .add_sized(
-                            btn_size,
-                            egui::Button::new(egui::RichText::new("▶").size(font_size)),
-                        )
-                        .clicked()
-                    {
-                        if self.solver.finished {
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if let Ok(n) = self.n_input.parse::<usize>() {
+                        if n >= 4 && n <= 30 {
+                            self.n = n;
                             self.solver = SolverWrapper::new(self.n);
                         }
-                        if let Ok(n) = self.n_input.parse::<usize>() {
-                            if n != self.n && n >= 4 {
-                                self.n = n;
-                                self.solver = SolverWrapper::new(self.n);
+                    }
+                }
+            });
+
+            ui.add_space(15.0);
+
+            ui.label(
+                egui::RichText::new("Controls")
+                    .strong()
+                    .color(self.theme.text_color),
+            );
+            ui.separator();
+
+            ui.horizontal_wrapped(|ui| {
+                let btn_size = if is_mobile {
+                    egui::vec2(55.0, 45.0)
+                } else {
+                    egui::vec2(50.0, 40.0)
+                };
+                let font_size = if is_mobile { 22.0 } else { 20.0 };
+
+                // Play
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(egui::RichText::new("▶").size(font_size)),
+                    )
+                    .clicked()
+                {
+                    if self.solver.finished {
+                        self.solver = SolverWrapper::new(self.n);
+                    }
+                    if let Ok(n) = self.n_input.parse::<usize>() {
+                        if n != self.n && n >= 4 {
+                            self.n = n;
+                            self.solver = SolverWrapper::new(self.n);
+                        }
+                    }
+                    self.paused = false;
+                    self.auto_play = false;
+                    self.finding_all = false;
+                }
+
+                // Step
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(egui::RichText::new("|▶").size(font_size)),
+                    )
+                    .clicked()
+                {
+                    self.solver.step();
+                    self.paused = true;
+                    self.auto_play = false;
+                    self.finding_all = false;
+                }
+
+                // Fast Forward
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(egui::RichText::new("⏩").size(font_size)),
+                    )
+                    .clicked()
+                {
+                    if !self.solver.finished {
+                        while !self.solver.finished {
+                            if self.solver.step() {
+                                break;
                             }
                         }
-                        self.paused = false;
+                        self.paused = true;
+                        self.finding_all = false;
+                        self.solver.backtracking = true;
+                    }
+                }
+
+                // Find All
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(egui::RichText::new("⏭").size(font_size)),
+                    )
+                    .clicked()
+                {
+                    if self.solver.finished {
+                        self.solver = SolverWrapper::new(self.n);
+                    }
+                    if let Ok(n) = self.n_input.parse::<usize>() {
+                        if n != self.n && n >= 4 {
+                            self.n = n;
+                            self.solver = SolverWrapper::new(self.n);
+                        }
+                    }
+                    self.auto_play = true;
+                    self.finding_all = true;
+                    self.speed = 10;
+                    self.paused = false;
+                }
+
+                // Stop / Restart
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(egui::RichText::new("◼").size(font_size)),
+                    )
+                    .clicked()
+                {
+                    if !self.paused && !self.solver.finished {
+                        self.paused = true;
                         self.auto_play = false;
                         self.finding_all = false;
-                    }
-
-                    // Step
-                    if ui
-                        .add_sized(
-                            btn_size,
-                            egui::Button::new(egui::RichText::new("|▶").size(font_size)),
-                        )
-                        .clicked()
-                    {
-                        self.solver.step();
+                    } else {
+                        if let Ok(n) = self.n_input.parse::<usize>() {
+                            if n >= 4 {
+                                self.n = n;
+                            }
+                        }
+                        self.solver = SolverWrapper::new(self.n);
                         self.paused = true;
                         self.auto_play = false;
                         self.finding_all = false;
                     }
+                }
+            });
 
-                    // Fast Forward
-                    if ui
-                        .add_sized(
-                            btn_size,
-                            egui::Button::new(egui::RichText::new("⏩").size(font_size)),
-                        )
-                        .clicked()
-                    {
-                        if !self.solver.finished {
-                            while !self.solver.finished {
-                                if self.solver.step() {
-                                    break;
-                                }
-                            }
-                            self.paused = true;
-                            self.finding_all = false;
-                            self.solver.backtracking = true;
-                        }
-                    }
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new("Speed").color(self.theme.text_color));
+            ui.add(egui::Slider::new(&mut self.speed, 1..=10).show_value(false));
 
-                    // Find All
-                    if ui
-                        .add_sized(
-                            btn_size,
-                            egui::Button::new(egui::RichText::new("⏭").size(font_size)),
-                        )
-                        .clicked()
-                    {
-                        if self.solver.finished {
-                            self.solver = SolverWrapper::new(self.n);
-                        }
-                        if let Ok(n) = self.n_input.parse::<usize>() {
-                            if n != self.n && n >= 4 {
-                                self.n = n;
-                                self.solver = SolverWrapper::new(self.n);
-                            }
-                        }
-                        self.auto_play = true;
-                        self.finding_all = true;
-                        self.speed = 10;
-                        self.paused = false;
-                    }
+            ui.add_space(8.0);
+            ui.checkbox(&mut self.show_threats, "Show Threatened Squares");
 
-                    // Stop / Restart
-                    if ui
-                        .add_sized(
-                            btn_size,
-                            egui::Button::new(egui::RichText::new("◼").size(font_size)),
-                        )
-                        .clicked()
-                    {
-                        if !self.paused && !self.solver.finished {
-                            self.paused = true;
-                            self.auto_play = false;
-                            self.finding_all = false;
-                        } else {
-                            if let Ok(n) = self.n_input.parse::<usize>() {
-                                if n >= 4 {
-                                    self.n = n;
-                                }
-                            }
-                            self.solver = SolverWrapper::new(self.n);
-                            self.paused = true;
-                            self.auto_play = false;
-                            self.finding_all = false;
-                        }
-                    }
-                });
+            ui.add_space(10.0);
+            ui.label(
+                egui::RichText::new(format!("Solutions: {}", self.solver.solutions.len()))
+                    .strong()
+                    .size(16.0),
+            );
 
+            #[cfg(not(target_arch = "wasm32"))]
+            {
                 ui.add_space(10.0);
-                ui.label(egui::RichText::new("Speed").color(self.theme.text_color));
-                ui.add(egui::Slider::new(&mut self.speed, 1..=10).show_value(false));
+                if ui.button("Export to CSV").clicked() {
+                    // (Export logic remains same)
+                }
+            }
 
-                ui.add_space(8.0);
-                ui.checkbox(&mut self.show_threats, "Show Threatened Squares");
-
-                ui.add_space(10.0);
+            if !is_mobile {
+                ui.add_space(20.0);
                 ui.label(
-                    egui::RichText::new(format!("Solutions: {}", self.solver.solutions.len()))
+                    egui::RichText::new("Solutions History")
                         .strong()
-                        .size(16.0),
+                        .color(self.theme.text_color),
                 );
-
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    ui.add_space(10.0);
-                    if ui.button("Export to CSV").clicked() {
-                        // (Export logic remains same)
-                    }
-                }
-
-                if !is_mobile {
-                    ui.add_space(20.0);
-                    ui.label(
-                        egui::RichText::new("Solutions History")
-                            .strong()
-                            .color(self.theme.text_color),
-                    );
-                    ui.separator();
-                    egui::ScrollArea::vertical()
-                        .max_height(300.0)
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            for (i, sol) in self.solver.solutions.iter().enumerate() {
-                                ui.label(
-                                    egui::RichText::new(format!("#{}: {}", i + 1, sol))
-                                        .monospace()
-                                        .size(12.0),
-                                );
-                            }
-                        });
-                }
-            };
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_height(300.0)
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for (i, sol) in self.solver.solutions.iter().enumerate() {
+                            ui.label(
+                                egui::RichText::new(format!("#{}: {}", i + 1, sol))
+                                    .monospace()
+                                    .size(12.0),
+                            );
+                        }
+                    });
+            }
+        };
 
         if is_mobile {
             egui::TopBottomPanel::bottom("controls")

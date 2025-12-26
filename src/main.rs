@@ -326,20 +326,47 @@ impl eframe::App for EightQueensApp {
 
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Board Size:").color(self.theme.text_color));
-                let resp = ui.add(
-                    egui::TextEdit::singleline(&mut self.n_input)
-                        .desired_width(if is_mobile { 60.0 } else { 50.0 })
-                        .font(egui::FontId::proportional(if is_mobile {
-                            16.0
-                        } else {
-                            14.0
-                        })),
-                );
-                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    if let Ok(n) = self.n_input.parse::<usize>() {
-                        if n >= 4 && n <= 30 {
-                            self.n = n;
+
+                if is_mobile {
+                    // Touch-friendly controls for board size
+                    let btn_style = egui::Button::new(egui::RichText::new("-").size(18.0).strong());
+                    if ui.add_sized([40.0, 40.0], btn_style).clicked() {
+                        if self.n > 4 {
+                            self.n -= 1;
+                            self.n_input = self.n.to_string();
                             self.solver = SolverWrapper::new(self.n);
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(self.n.to_string())
+                            .size(20.0)
+                            .strong()
+                            .color(self.theme.accent_color),
+                    );
+                    ui.add_space(8.0);
+
+                    let btn_style = egui::Button::new(egui::RichText::new("+").size(18.0).strong());
+                    if ui.add_sized([40.0, 40.0], btn_style).clicked() {
+                        if self.n < 30 {
+                            self.n += 1;
+                            self.n_input = self.n.to_string();
+                            self.solver = SolverWrapper::new(self.n);
+                        }
+                    }
+                } else {
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.n_input)
+                            .desired_width(50.0)
+                            .font(egui::FontId::proportional(14.0)),
+                    );
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if let Ok(n) = self.n_input.parse::<usize>() {
+                            if n >= 4 && n <= 30 {
+                                self.n = n;
+                                self.solver = SolverWrapper::new(self.n);
+                            }
                         }
                     }
                 }

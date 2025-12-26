@@ -46,6 +46,8 @@ fn main() {
                 web_options,
                 Box::new(|cc| {
                     cc.egui_ctx.set_visuals(egui::Visuals::dark());
+                    // Recommended for web: avoid infinite resize loops
+                    cc.egui_ctx.set_pixels_per_point(1.0);
                     Ok(Box::new(EightQueensApp::default()))
                 }),
             )

@@ -926,11 +926,9 @@ fn web_csv_export(solutions: &[String], n: usize) {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let parts = js_sys::Array::of1(&JsValue::from_str(&csv_content));
-    let blob = web_sys::Blob::new_with_str_sequence_and_options(
-        &parts,
-        web_sys::BlobPropertyBag::new().type_("text/csv"),
-    )
-    .unwrap();
+    let mut blob_options = web_sys::BlobPropertyBag::new();
+    blob_options.set_type("text/csv");
+    let blob = web_sys::Blob::new_with_str_sequence_and_options(&parts, &blob_options).unwrap();
     let url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
     let a = document
         .create_element("a")

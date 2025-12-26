@@ -146,7 +146,6 @@ struct EightQueensApp {
     show_threats: bool,
     only_unique: bool,
     particles: Vec<Particle>,
-    queen_animation: f32, // For visual effects
 }
 struct SolverWrapper {
     n: usize,
@@ -346,7 +345,6 @@ impl Default for EightQueensApp {
             show_threats: false,
             only_unique: false,
             particles: Vec::new(),
-            queen_animation: 0.0,
         }
     }
 }
@@ -390,14 +388,20 @@ impl eframe::App for EightQueensApp {
         if self.auto_play && !self.solver.finished {
             if self.speed == 10 {
                 let start = Instant::now();
+                let mut found_any = false;
                 while start.elapsed() < Duration::from_millis(16) && !self.solver.finished {
                     if self.solver.step() {
+                        found_any = true;
                         if !self.finding_all {
                             self.paused = true;
                             self.auto_play = false;
                             break;
                         }
                     }
+                }
+                if found_any {
+                    let center = ctx.screen_rect().center();
+                    self.spawn_particles(center, self.theme.accent_color);
                 }
                 if self.solver.finished {
                     self.solver.restore_last_solution();
@@ -473,54 +477,96 @@ impl eframe::App for EightQueensApp {
 
             // Mobile: Compact Bottom Controls
             egui::TopBottomPanel::bottom("mobile_bottom")
-                .frame(panel_frame.inner_margin(egui::Margin::symmetric(10.0, 8.0)))
+                .frame(panel_frame.inner_margin(egui::Margin::symmetric(15.0, 10.0)))
                 .show(ctx, |ui| {
                     ui.vertical(|ui| {
-                        // Row 1: Size & Speed & Settings
+                        // Row 1: Board Size & Speed
                         ui.horizontal(|ui| {
-                            ui.label("Sz:");
-                            let btn_style = egui::Button::new("-").small();
-                            if ui.add(btn_style).clicked() && self.n > 4 {
+                            ui.label("Size:");
+                            if ui.button("-").clicked() && self.n > 4 {
                                 self.n -= 1;
                                 self.n_input = self.n.to_string();
                                 self.solver = SolverWrapper::new(self.n);
+                                self.paused = true;
+                                self.auto_play = false;
                             }
                             ui.label(
                                 egui::RichText::new(self.n.to_string())
                                     .strong()
                                     .color(self.theme.accent_color),
                             );
-                            let btn_style = egui::Button::new("+").small();
-                            if ui.add(btn_style).clicked() && self.n < 30 {
+                            if ui.button("+").clicked() && self.n < 30 {
                                 self.n += 1;
                                 self.n_input = self.n.to_string();
                                 self.solver = SolverWrapper::new(self.n);
+                                self.paused = true;
+                                self.auto_play = false;
                             }
 
-                            ui.separator();
-                            ui.add_sized(
-                                [50.0, 20.0],
-                                egui::Slider::new(&mut self.speed, 1..=10).show_value(false),
-                            );
-                            ui.checkbox(&mut self.only_unique, "U");
-                            ui.checkbox(&mut self.show_threats, "T");
-
-                            // Theme cycle button for mobile
-                            if ui.button("🎨").clicked() {
-                                let presets = Theme::presets();
-                                if let Some(idx) =
-                                    presets.iter().position(|t| t.name == self.theme.name)
-                                {
-                                    self.theme = presets[(idx + 1) % presets.len()].clone();
-                                }
-                            }
+                            ui.add_space(20.0);
+                            ui.label("Speed:");
+                            ui.add(egui::Slider::new(&mut self.speed, 1..=10).show_value(true));
                         });
 
-                        ui.add_space(4.0);
+                        ui.add_space(8.0);
 
-                        // Row 2: Playback Controls
+                        // Row 2: Options & Settings
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut self.only_unique, "Unique Only");
+                            ui.checkbox(&mut self.show_threats, "Threats");
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("🎨 Theme").clicked() {
+                                        let presets = Theme::presets();
+                                        if let Some(idx) =
+                                            presets.iter().position(|t| t.name == self.theme.name)
+                                        {
+                                            self.theme = presets[(idx + 1) % presets.len()].clone();
+                                        }
+                                    }
+
+                                    if ui.button("� Export").clicked() {
+                                        let display_solutions: Vec<String> = if self.only_unique {
+                                            self.solver
+                                                .solutions
+                                                .iter()
+                                                .filter(|s| !s.starts_with("(Sym)"))
+                                                .cloned()
+                                                .collect()
+                                        } else {
+                                            self.solver.solutions.clone()
+                                        };
+                                        #[cfg(target_arch = "wasm32")]
+                                        web_csv_export(&display_solutions, self.n);
+                                        #[cfg(not(target_arch = "wasm32"))]
+                                        if let Some(path) = rfd::FileDialog::new()
+                                            .add_filter("CSV", &["csv"])
+                                            .set_file_name(&format!("nqueens_{}.csv", self.n))
+                                            .save_file()
+                                        {
+                                            let mut wtr = csv::Writer::from_path(path).unwrap();
+                                            let _ =
+                                                wtr.write_record(&["Solution #", "Configuration"]);
+                                            for (i, sol) in display_solutions.iter().enumerate() {
+                                                let _ = wtr.write_record(&[
+                                                    (i + 1).to_string(),
+                                                    sol.clone(),
+                                                ]);
+                                            }
+                                            let _ = wtr.flush();
+                                        }
+                                    }
+                                },
+                            );
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Row 3: Playback Controls
                         ui.horizontal_centered(|ui| {
-                            let b_size = egui::vec2(50.0, 40.0);
+                            let b_size = egui::vec2(ui.available_width() / 5.0 - 5.0, 45.0);
                             if ui.add_sized(b_size, egui::Button::new("▶")).clicked() {
                                 if self.solver.finished {
                                     self.solver = SolverWrapper::new(self.n);
@@ -566,139 +612,174 @@ impl eframe::App for EightQueensApp {
                 .min_width(320.0)
                 .resizable(true)
                 .show(ctx, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(8.0);
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("♛ N-Queens")
+                                    .size(24.0)
+                                    .strong()
+                                    .color(self.theme.text_color),
+                            );
+                        });
+                        ui.add_space(20.0);
                         ui.label(
-                            egui::RichText::new("♛ N-Queens")
-                                .size(24.0)
+                            egui::RichText::new("Configuration")
                                 .strong()
                                 .color(self.theme.text_color),
                         );
-                    });
-                    ui.add_space(20.0);
-                    ui.label(
-                        egui::RichText::new("Configuration")
-                            .strong()
-                            .color(self.theme.text_color),
-                    );
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.label("Board Size:");
-                        let resp = ui
-                            .add(egui::TextEdit::singleline(&mut self.n_input).desired_width(50.0));
-                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            if let Ok(n) = self.n_input.parse::<usize>() {
-                                if n >= 4 && n <= 30 {
-                                    self.n = n;
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Board Size (4-30):");
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut self.n_input).desired_width(50.0),
+                            );
+                            if resp.changed() {
+                                if let Ok(new_n) = self.n_input.parse::<usize>() {
+                                    if new_n >= 4 && new_n <= 30 && new_n != self.n {
+                                        self.n = new_n;
+                                        self.solver = SolverWrapper::new(self.n);
+                                        self.paused = true;
+                                        self.auto_play = false;
+                                    }
+                                }
+                            }
+                            let should_update = resp.lost_focus()
+                                || (resp.has_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                            if should_update {
+                                self.n_input = self.n.to_string();
+                            }
+                        });
+                        ui.add_space(15.0);
+                        ui.label(
+                            egui::RichText::new("Controls")
+                                .strong()
+                                .color(self.theme.text_color),
+                        );
+                        ui.separator();
+                        ui.horizontal_wrapped(|ui| {
+                            let btn_size = egui::vec2(50.0, 40.0);
+                            if ui.add_sized(btn_size, egui::Button::new("▶")).clicked() {
+                                if self.solver.finished {
                                     self.solver = SolverWrapper::new(self.n);
                                 }
+                                self.paused = false;
+                                self.auto_play = false;
+                                self.finding_all = false;
                             }
-                        }
-                    });
-                    ui.add_space(15.0);
-                    ui.label(
-                        egui::RichText::new("Controls")
-                            .strong()
-                            .color(self.theme.text_color),
-                    );
-                    ui.separator();
-                    ui.horizontal_wrapped(|ui| {
-                        let btn_size = egui::vec2(50.0, 40.0);
-                        if ui.add_sized(btn_size, egui::Button::new("▶")).clicked() {
-                            if self.solver.finished {
-                                self.solver = SolverWrapper::new(self.n);
+                            if ui.add_sized(btn_size, egui::Button::new("|▶")).clicked() {
+                                self.solver.step();
+                                self.paused = true;
                             }
-                            self.paused = false;
-                            self.auto_play = false;
-                            self.finding_all = false;
-                        }
-                        if ui.add_sized(btn_size, egui::Button::new("|▶")).clicked() {
-                            self.solver.step();
-                            self.paused = true;
-                        }
-                        if ui.add_sized(btn_size, egui::Button::new("⏩")).clicked() {
-                            while !self.solver.finished {
-                                if self.solver.step() {
-                                    break;
+                            if ui.add_sized(btn_size, egui::Button::new("⏩")).clicked() {
+                                while !self.solver.finished {
+                                    if self.solver.step() {
+                                        break;
+                                    }
+                                }
+                                self.paused = true;
+                                self.solver.backtracking = true;
+                            }
+                            if ui.add_sized(btn_size, egui::Button::new("⏭")).clicked() {
+                                self.auto_play = true;
+                                self.finding_all = true;
+                                self.speed = 10;
+                                self.paused = false;
+                            }
+                            if ui.add_sized(btn_size, egui::Button::new("◼")).clicked() {
+                                if !self.paused && !self.solver.finished {
+                                    self.paused = true;
+                                } else {
+                                    self.solver = SolverWrapper::new(self.n);
+                                    self.paused = true;
                                 }
                             }
-                            self.paused = true;
-                            self.solver.backtracking = true;
-                        }
-                        if ui.add_sized(btn_size, egui::Button::new("⏭")).clicked() {
-                            self.auto_play = true;
-                            self.finding_all = true;
-                            self.speed = 10;
-                            self.paused = false;
-                        }
-                        if ui.add_sized(btn_size, egui::Button::new("◼")).clicked() {
-                            if !self.paused && !self.solver.finished {
-                                self.paused = true;
-                            } else {
-                                self.solver = SolverWrapper::new(self.n);
-                                self.paused = true;
-                            }
-                        }
-                    });
-                    ui.checkbox(&mut self.show_threats, "Show Threatened Squares");
-                    ui.checkbox(&mut self.only_unique, "Show Unique Solutions Only");
-
-                    ui.add_space(10.0);
-                    ui.label("Theme:");
-                    egui::ComboBox::from_id_source("theme_picker")
-                        .selected_text(self.theme.name)
-                        .show_ui(ui, |ui| {
-                            for preset in Theme::presets() {
-                                ui.selectable_value(&mut self.theme, preset.clone(), preset.name);
-                            }
                         });
 
-                    ui.add_space(20.0);
-                    let display_solutions: Vec<String> = if self.only_unique {
-                        self.solver
-                            .solutions
-                            .iter()
-                            .filter(|s| !s.starts_with("(Sym)"))
-                            .cloned()
-                            .collect()
-                    } else {
-                        self.solver.solutions.clone()
-                    };
+                        ui.add_space(10.0);
+                        ui.label("Speed");
+                        ui.add(egui::Slider::new(&mut self.speed, 1..=10).text("Speed"));
 
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Solutions Found: {}",
-                            display_solutions.len()
-                        ))
-                        .strong()
-                        .size(16.0),
-                    );
+                        ui.add_space(10.0);
+                        ui.checkbox(&mut self.show_threats, "Show Threatened Squares");
+                        ui.checkbox(&mut self.only_unique, "Show Unique Solutions Only");
 
-                    ui.add_space(10.0);
-                    #[cfg(target_arch = "wasm32")]
-                    if ui.button("Export to CSV").clicked() {
-                        web_csv_export(&display_solutions, self.n);
-                    }
+                        ui.add_space(10.0);
+                        ui.label("Theme:");
+                        egui::ComboBox::from_id_salt("theme_picker")
+                            .selected_text(self.theme.name)
+                            .show_ui(ui, |ui| {
+                                for preset in Theme::presets() {
+                                    ui.selectable_value(
+                                        &mut self.theme,
+                                        preset.clone(),
+                                        preset.name,
+                                    );
+                                }
+                            });
 
-                    ui.add_space(10.0);
-                    ui.label(
-                        egui::RichText::new("Solutions History")
+                        ui.add_space(20.0);
+                        let display_solutions: Vec<String> = if self.only_unique {
+                            self.solver
+                                .solutions
+                                .iter()
+                                .filter(|s| !s.starts_with("(Sym)"))
+                                .cloned()
+                                .collect()
+                        } else {
+                            self.solver.solutions.clone()
+                        };
+
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Solutions Found: {}",
+                                display_solutions.len()
+                            ))
                             .strong()
-                            .color(self.theme.text_color),
-                    );
-                    ui.separator();
-                    egui::ScrollArea::vertical()
-                        .max_height(200.0)
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            for (i, sol) in display_solutions.iter().enumerate() {
-                                ui.label(
-                                    egui::RichText::new(format!("#{}: {}", i + 1, sol))
-                                        .monospace()
-                                        .size(12.0),
-                                );
+                            .size(16.0),
+                        );
+
+                        ui.add_space(10.0);
+                        if ui.button("Export to CSV").clicked() {
+                            #[cfg(target_arch = "wasm32")]
+                            web_csv_export(&display_solutions, self.n);
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("CSV", &["csv"])
+                                .set_file_name(&format!("nqueens_{}.csv", self.n))
+                                .save_file()
+                            {
+                                let mut wtr = csv::Writer::from_path(path).unwrap();
+                                wtr.write_record(&["Solution #", "Configuration"]).unwrap();
+                                for (i, sol) in display_solutions.iter().enumerate() {
+                                    wtr.write_record(&[(i + 1).to_string(), sol.clone()])
+                                        .unwrap();
+                                }
+                                wtr.flush().unwrap();
                             }
-                        });
+                        }
+
+                        ui.add_space(10.0);
+                        ui.label(
+                            egui::RichText::new("Solutions History")
+                                .strong()
+                                .color(self.theme.text_color),
+                        );
+                        ui.separator();
+                        egui::ScrollArea::vertical()
+                            .max_height(200.0)
+                            .stick_to_bottom(true)
+                            .show(ui, |ui| {
+                                for (i, sol) in display_solutions.iter().enumerate() {
+                                    ui.label(
+                                        egui::RichText::new(format!("#{}: {}", i + 1, sol))
+                                            .monospace()
+                                            .size(12.0),
+                                    );
+                                }
+                            });
+                    });
                 });
         }
 

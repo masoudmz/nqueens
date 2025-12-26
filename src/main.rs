@@ -56,9 +56,9 @@ fn main() {
     });
 }
 
-// --- Theme Definition ---
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Theme {
+    name: &'static str,
     background: egui::Color32,
     panel_background: egui::Color32,
     text_color: egui::Color32,
@@ -68,19 +68,65 @@ struct Theme {
     queen_color: egui::Color32,
 }
 
+impl Theme {
+    fn presets() -> Vec<Self> {
+        vec![
+            Self {
+                name: "Sleek Dark",
+                background: egui::Color32::from_rgb(15, 23, 42),
+                panel_background: egui::Color32::from_rgb(30, 41, 59),
+                text_color: egui::Color32::from_rgb(226, 232, 240),
+                accent_color: egui::Color32::from_rgb(99, 102, 241),
+                board_light: egui::Color32::from_rgb(241, 245, 249),
+                board_dark: egui::Color32::from_rgb(100, 116, 139),
+                queen_color: egui::Color32::from_rgb(15, 23, 42),
+            },
+            Self {
+                name: "Classic Wood",
+                background: egui::Color32::from_rgb(45, 25, 10),
+                panel_background: egui::Color32::from_rgb(70, 40, 20),
+                text_color: egui::Color32::from_rgb(245, 230, 200),
+                accent_color: egui::Color32::from_rgb(180, 100, 40),
+                board_light: egui::Color32::from_rgb(210, 180, 140),
+                board_dark: egui::Color32::from_rgb(139, 69, 19),
+                queen_color: egui::Color32::from_rgb(45, 25, 10),
+            },
+            Self {
+                name: "Neon Night",
+                background: egui::Color32::from_rgb(10, 10, 20),
+                panel_background: egui::Color32::from_rgb(20, 20, 40),
+                text_color: egui::Color32::from_rgb(0, 255, 255),
+                accent_color: egui::Color32::from_rgb(255, 0, 255),
+                board_light: egui::Color32::from_rgb(30, 30, 60),
+                board_dark: egui::Color32::from_rgb(15, 15, 30),
+                queen_color: egui::Color32::from_rgb(255, 255, 0),
+            },
+            Self {
+                name: "Paper",
+                background: egui::Color32::from_rgb(240, 240, 230),
+                panel_background: egui::Color32::from_rgb(220, 220, 210),
+                text_color: egui::Color32::from_rgb(50, 50, 50),
+                accent_color: egui::Color32::from_rgb(200, 50, 50),
+                board_light: egui::Color32::from_rgb(255, 255, 250),
+                board_dark: egui::Color32::from_rgb(200, 200, 190),
+                queen_color: egui::Color32::from_rgb(20, 20, 20),
+            },
+        ]
+    }
+}
+
 impl Default for Theme {
     fn default() -> Self {
-        Self {
-            // Sleek Dark Theme
-            background: egui::Color32::from_rgb(15, 23, 42), // Slate 900
-            panel_background: egui::Color32::from_rgb(30, 41, 59), // Slate 800
-            text_color: egui::Color32::from_rgb(226, 232, 240), // Slate 200
-            accent_color: egui::Color32::from_rgb(99, 102, 241), // Indigo 500
-            board_light: egui::Color32::from_rgb(241, 245, 249), // Slate 100
-            board_dark: egui::Color32::from_rgb(100, 116, 139), // Slate 500
-            queen_color: egui::Color32::from_rgb(15, 23, 42), // Slate 900
-        }
+        Self::presets()[0].clone()
     }
+}
+
+struct Particle {
+    pos: egui::Pos2,
+    vel: egui::Vec2,
+    color: egui::Color32,
+    life: f32, // 1.0 down to 0.0
+    size: f32,
 }
 
 // Re-implementing Solver with a distinct "Frame-based" approach
@@ -98,8 +144,10 @@ struct EightQueensApp {
     last_update: Instant,
     theme: Theme,
     show_threats: bool,
+    only_unique: bool,
+    particles: Vec<Particle>,
+    queen_animation: f32, // For visual effects
 }
-
 struct SolverWrapper {
     n: usize,
     board: Vec<Vec<u8>>,
@@ -112,9 +160,9 @@ struct SolverWrapper {
     col: usize,
     row: usize,
     backtracking: bool,
-
     finished: bool,
     last_solution_board: Option<Vec<Vec<u8>>>,
+    unique_solutions: Vec<Vec<usize>>, // Store row indices
 }
 
 impl SolverWrapper {
@@ -129,7 +177,60 @@ impl SolverWrapper {
             backtracking: false,
             finished: false,
             last_solution_board: None,
+            unique_solutions: Vec::new(),
         }
+    }
+
+    fn get_variants(sol: &[usize]) -> Vec<Vec<usize>> {
+        let n = sol.len();
+        let mut variants = Vec::new();
+
+        // 1. Convert to (x, y) coordinates
+        let coords: Vec<(usize, usize)> = sol.iter().enumerate().map(|(x, &y)| (x, y)).collect();
+
+        // Helper to convert back to sol vector
+        let to_sol = |pts: &[(usize, usize)]| -> Vec<usize> {
+            let mut v = vec![0; n];
+            for &(x, y) in pts {
+                v[x] = y;
+            }
+            v
+        };
+
+        // All 8 transformations
+        // (x, y) ->
+        // 1. (x, y)
+        // 2. (y, n-1-x) - rotate 90
+        // 3. (n-1-x, n-1-y) - rotate 180
+        // 4. (n-1-y, x) - rotate 270
+        // 5. (n-1-x, y) - flip H
+        // 6. (x, n-1-y) - flip V
+        // 7. (y, x) - flip D1
+        // 8. (n-1-y, n-1-x) - flip D2
+
+        let mut curr = coords.clone();
+        for _ in 0..4 {
+            // Rotate
+            variants.push(to_sol(&curr));
+            // Flip H
+            let flipped: Vec<(usize, usize)> = curr.iter().map(|&(x, y)| (n - 1 - x, y)).collect();
+            variants.push(to_sol(&flipped));
+
+            // Apply 90 rotation for next iteration
+            curr = curr.iter().map(|&(x, y)| (y, n - 1 - x)).collect();
+        }
+
+        variants
+    }
+
+    fn is_new_unique(&self, sol: &[usize]) -> bool {
+        let variants = Self::get_variants(sol);
+        for v in variants {
+            if self.unique_solutions.contains(&v) {
+                return false;
+            }
+        }
+        true
     }
 
     fn step(&mut self) -> bool {
@@ -199,19 +300,28 @@ impl SolverWrapper {
     }
 
     fn save_solution(&mut self) {
-        // Store this board state as the last found solution
-        self.last_solution_board = Some(self.board.clone());
-
+        let mut queen_rows = vec![0; self.n];
         let mut parts = Vec::new();
         for c in 0..self.n {
-            // Find row
             if let Some(r) = (0..self.n).find(|&r| self.board[r][c] == 1) {
+                queen_rows[c] = r;
                 let file = (b'a' + c as u8) as char;
                 let rank = r + 1;
                 parts.push(format!("{}{}", file, rank));
             }
         }
-        self.solutions.push(parts.join(", "));
+
+        let sol_str = parts.join(", ");
+        if !self.is_new_unique(&queen_rows) {
+            // Already seen a variant of this
+            self.last_solution_board = Some(self.board.clone());
+            self.unique_solutions.push(queen_rows); // We still store it to mark as non-unique if needed, but usually we just want the list of strings
+            self.solutions.push(format!("(Sym) {}", sol_str));
+        } else {
+            self.last_solution_board = Some(self.board.clone());
+            self.unique_solutions.push(queen_rows);
+            self.solutions.push(sol_str);
+        }
     }
 
     fn restore_last_solution(&mut self) {
@@ -234,6 +344,27 @@ impl Default for EightQueensApp {
             last_update: Instant::now(),
             theme: Theme::default(),
             show_threats: false,
+            only_unique: false,
+            particles: Vec::new(),
+            queen_animation: 0.0,
+        }
+    }
+}
+
+impl EightQueensApp {
+    fn spawn_particles(&mut self, pos: egui::Pos2, color: egui::Color32) {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        for _ in 0..30 {
+            let angle: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
+            let speed: f32 = rng.gen_range(100.0..500.0);
+            self.particles.push(Particle {
+                pos,
+                vel: egui::vec2(angle.cos() * speed, angle.sin() * speed - 200.0),
+                color,
+                life: 1.0,
+                size: rng.gen_range(3.0..7.0),
+            });
         }
     }
 }
@@ -241,6 +372,15 @@ impl Default for EightQueensApp {
 impl eframe::App for EightQueensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // --- Update Logic ---
+        // --- Animation Update ---
+        let dt = ctx.input(|i| i.stable_dt);
+        self.particles.retain_mut(|p| {
+            p.pos += p.vel * dt;
+            p.vel.y += 800.0 * dt; // Gravity
+            p.life -= dt * 1.5;
+            p.life > 0.0
+        });
+
         let delay_ms = if self.speed == 10 {
             0
         } else {
@@ -266,6 +406,8 @@ impl eframe::App for EightQueensApp {
             } else {
                 if self.last_update.elapsed().as_millis() as u64 >= delay_ms {
                     if self.solver.step() {
+                        let center = ctx.screen_rect().center();
+                        self.spawn_particles(center, self.theme.accent_color);
                         if !self.finding_all {
                             self.paused = true;
                             self.auto_play = false;
@@ -278,6 +420,8 @@ impl eframe::App for EightQueensApp {
         } else if !self.paused && !self.solver.finished {
             if self.last_update.elapsed().as_millis() as u64 >= delay_ms {
                 if self.solver.step() {
+                    let center = ctx.screen_rect().center();
+                    self.spawn_particles(center, self.theme.accent_color);
                     if !self.finding_all {
                         self.paused = true;
                     }
@@ -332,7 +476,7 @@ impl eframe::App for EightQueensApp {
                 .frame(panel_frame.inner_margin(egui::Margin::symmetric(10.0, 8.0)))
                 .show(ctx, |ui| {
                     ui.vertical(|ui| {
-                        // Row 1: Size & Speed & Threat
+                        // Row 1: Size & Speed & Settings
                         ui.horizontal(|ui| {
                             ui.label("Sz:");
                             let btn_style = egui::Button::new("-").small();
@@ -354,13 +498,22 @@ impl eframe::App for EightQueensApp {
                             }
 
                             ui.separator();
-                            ui.label("Spd:");
                             ui.add_sized(
-                                [60.0, 20.0],
+                                [50.0, 20.0],
                                 egui::Slider::new(&mut self.speed, 1..=10).show_value(false),
                             );
-                            ui.add_space(10.0);
+                            ui.checkbox(&mut self.only_unique, "U");
                             ui.checkbox(&mut self.show_threats, "T");
+
+                            // Theme cycle button for mobile
+                            if ui.button("🎨").clicked() {
+                                let presets = Theme::presets();
+                                if let Some(idx) =
+                                    presets.iter().position(|t| t.name == self.theme.name)
+                                {
+                                    self.theme = presets[(idx + 1) % presets.len()].clone();
+                                }
+                            }
                         });
 
                         ui.add_space(4.0);
@@ -487,20 +640,47 @@ impl eframe::App for EightQueensApp {
                             }
                         }
                     });
-                    ui.add_space(10.0);
-                    ui.label("Speed");
-                    ui.add(egui::Slider::new(&mut self.speed, 1..=10).show_value(false));
                     ui.checkbox(&mut self.show_threats, "Show Threatened Squares");
+                    ui.checkbox(&mut self.only_unique, "Show Unique Solutions Only");
+
+                    ui.add_space(10.0);
+                    ui.label("Theme:");
+                    egui::ComboBox::from_id_source("theme_picker")
+                        .selected_text(self.theme.name)
+                        .show_ui(ui, |ui| {
+                            for preset in Theme::presets() {
+                                ui.selectable_value(&mut self.theme, preset.clone(), preset.name);
+                            }
+                        });
+
                     ui.add_space(20.0);
+                    let display_solutions: Vec<String> = if self.only_unique {
+                        self.solver
+                            .solutions
+                            .iter()
+                            .filter(|s| !s.starts_with("(Sym)"))
+                            .cloned()
+                            .collect()
+                    } else {
+                        self.solver.solutions.clone()
+                    };
+
                     ui.label(
                         egui::RichText::new(format!(
                             "Solutions Found: {}",
-                            self.solver.solutions.len()
+                            display_solutions.len()
                         ))
                         .strong()
                         .size(16.0),
                     );
-                    ui.add_space(20.0);
+
+                    ui.add_space(10.0);
+                    #[cfg(target_arch = "wasm32")]
+                    if ui.button("Export to CSV").clicked() {
+                        web_csv_export(&display_solutions, self.n);
+                    }
+
+                    ui.add_space(10.0);
                     ui.label(
                         egui::RichText::new("Solutions History")
                             .strong()
@@ -511,7 +691,7 @@ impl eframe::App for EightQueensApp {
                         .max_height(200.0)
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
-                            for (i, sol) in self.solver.solutions.iter().enumerate() {
+                            for (i, sol) in display_solutions.iter().enumerate() {
                                 ui.label(
                                     egui::RichText::new(format!("#{}: {}", i + 1, sol))
                                         .monospace()
@@ -598,24 +778,28 @@ impl eframe::App for EightQueensApp {
 
                         // Highlight placement (optional, simple check)
                         if self.solver.board[row][col] == 1 {
-                            // Draw Queen with better styling
-                            // Circle background
                             let center = cell_rect.center();
-                            // Text default "♛"
                             let font_size = cell_size * 0.7;
-
-                            // We could do a unicode shadow
-                            // painter.text(center + egui::vec2(2.0, 2.0), egui::Align2::CENTER_CENTER, "♛", egui::FontId::proportional(font_size), egui::Color32::BLACK.linear_multiply(0.3));
+                            let alpha = if row == self.solver.row && col == self.solver.col - 1 {
+                                ctx.animate_bool(egui::Id::new((row, col)), true)
+                            } else {
+                                1.0
+                            };
 
                             painter.text(
                                 center,
                                 egui::Align2::CENTER_CENTER,
                                 "♛",
                                 egui::FontId::proportional(font_size),
-                                self.theme.queen_color,
+                                self.theme.queen_color.linear_multiply(alpha),
                             );
                         }
                     }
+                }
+
+                // Draw Particles
+                for p in &self.particles {
+                    painter.circle_filled(p.pos, p.size, p.color.linear_multiply(p.life));
                 }
 
                 // Draw Coordinates
@@ -648,4 +832,32 @@ impl eframe::App for EightQueensApp {
                 }
             });
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_csv_export(solutions: &[String], n: usize) {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::JsValue;
+    let mut csv_content = String::from("Solution #,Configuration\n");
+    for (i, sol) in solutions.iter().enumerate() {
+        csv_content.push_str(&format!("{},\"{}\"\n", i + 1, sol));
+    }
+    let window = web_sys::window().unwrap();
+    let document = window.document().unwrap();
+    let parts = js_sys::Array::of1(&JsValue::from_str(&csv_content));
+    let blob = web_sys::Blob::new_with_str_sequence_and_options(
+        &parts,
+        web_sys::BlobPropertyBag::new().type_("text/csv"),
+    )
+    .unwrap();
+    let url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
+    let a = document
+        .create_element("a")
+        .unwrap()
+        .dyn_into::<web_sys::HtmlAnchorElement>()
+        .unwrap();
+    a.set_href(&url);
+    a.set_download(&format!("nqueens_{}.csv", n));
+    a.click();
+    web_sys::Url::revoke_object_url(&url).unwrap();
 }

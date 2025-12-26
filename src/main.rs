@@ -121,14 +121,6 @@ impl Default for Theme {
     }
 }
 
-struct Particle {
-    pos: egui::Pos2,
-    vel: egui::Vec2,
-    color: egui::Color32,
-    life: f32, // 1.0 down to 0.0
-    size: f32,
-}
-
 // Re-implementing Solver with a distinct "Frame-based" approach
 struct EightQueensApp {
     n_input: String,
@@ -145,7 +137,6 @@ struct EightQueensApp {
     theme: Theme,
     show_threats: bool,
     only_unique: bool,
-    particles: Vec<Particle>,
 }
 struct SolverWrapper {
     n: usize,
@@ -344,25 +335,6 @@ impl Default for EightQueensApp {
             theme: Theme::default(),
             show_threats: false,
             only_unique: false,
-            particles: Vec::new(),
-        }
-    }
-}
-
-impl EightQueensApp {
-    fn spawn_particles(&mut self, pos: egui::Pos2, color: egui::Color32) {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        for _ in 0..30 {
-            let angle: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
-            let speed: f32 = rng.gen_range(100.0..500.0);
-            self.particles.push(Particle {
-                pos,
-                vel: egui::vec2(angle.cos() * speed, angle.sin() * speed - 200.0),
-                color,
-                life: 1.0,
-                size: rng.gen_range(3.0..7.0),
-            });
         }
     }
 }
@@ -370,14 +342,7 @@ impl EightQueensApp {
 impl eframe::App for EightQueensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // --- Update Logic ---
-        // --- Animation Update ---
-        let dt = ctx.input(|i| i.stable_dt);
-        self.particles.retain_mut(|p| {
-            p.pos += p.vel * dt;
-            p.vel.y += 800.0 * dt; // Gravity
-            p.life -= dt * 1.5;
-            p.life > 0.0
-        });
+        let _dt = ctx.input(|i| i.stable_dt);
 
         let delay_ms = if self.speed == 10 {
             0
@@ -388,20 +353,14 @@ impl eframe::App for EightQueensApp {
         if self.auto_play && !self.solver.finished {
             if self.speed == 10 {
                 let start = Instant::now();
-                let mut found_any = false;
                 while start.elapsed() < Duration::from_millis(16) && !self.solver.finished {
                     if self.solver.step() {
-                        found_any = true;
                         if !self.finding_all {
                             self.paused = true;
                             self.auto_play = false;
                             break;
                         }
                     }
-                }
-                if found_any {
-                    let center = ctx.screen_rect().center();
-                    self.spawn_particles(center, self.theme.accent_color);
                 }
                 if self.solver.finished {
                     self.solver.restore_last_solution();
@@ -410,8 +369,6 @@ impl eframe::App for EightQueensApp {
             } else {
                 if self.last_update.elapsed().as_millis() as u64 >= delay_ms {
                     if self.solver.step() {
-                        let center = ctx.screen_rect().center();
-                        self.spawn_particles(center, self.theme.accent_color);
                         if !self.finding_all {
                             self.paused = true;
                             self.auto_play = false;
@@ -424,8 +381,6 @@ impl eframe::App for EightQueensApp {
         } else if !self.paused && !self.solver.finished {
             if self.last_update.elapsed().as_millis() as u64 >= delay_ms {
                 if self.solver.step() {
-                    let center = ctx.screen_rect().center();
-                    self.spawn_particles(center, self.theme.accent_color);
                     if !self.finding_all {
                         self.paused = true;
                     }
@@ -876,11 +831,6 @@ impl eframe::App for EightQueensApp {
                             );
                         }
                     }
-                }
-
-                // Draw Particles
-                for p in &self.particles {
-                    painter.circle_filled(p.pos, p.size, p.color.linear_multiply(p.life));
                 }
 
                 // Draw Coordinates

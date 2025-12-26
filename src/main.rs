@@ -355,10 +355,9 @@ impl eframe::App for EightQueensApp {
 
                             ui.separator();
                             ui.label("Spd:");
-                            ui.add(
-                                egui::Slider::new(&mut self.speed, 1..=10)
-                                    .show_value(false)
-                                    .width(60.0),
+                            ui.add_sized(
+                                [60.0, 20.0],
+                                egui::Slider::new(&mut self.speed, 1..=10).show_value(false),
                             );
                             ui.add_space(10.0);
                             ui.checkbox(&mut self.show_threats, "T");
